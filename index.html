@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Maze Runner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1120; --panel:#111a2e; --panel2:#16223c; --line:#24334f;
+    --text:#e8eefc; --muted:#8ea3c4; --gold:#fbbf24;
+    --red:#ef4444; --blue:#3b82f6; --green:#22c55e; --yellow:#eab308;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    overflow:hidden;
+  }
+  .screen{display:none; height:100dvh; width:100vw; flex-direction:column; align-items:center; justify-content:center; padding:16px; gap:14px;}
+  .screen.on{display:flex;}
+  h1.logo{font-size:clamp(26px,4.5vw,44px); letter-spacing:2px; font-weight:800;}
+  h1.logo .a{color:var(--gold);}
+  .sub{color:var(--muted); font-size:14px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35);}
+  button{
+    font:inherit; font-weight:700; color:var(--text); background:var(--panel2);
+    border:1px solid var(--line); border-radius:12px; padding:12px 22px; cursor:pointer;
+  }
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  button.primary{background:linear-gradient(135deg,#f59e0b,#fbbf24); color:#1a1203; border:none; font-size:17px;}
+  button.primary:not(:disabled):active{transform:scale(.97);}
+  input[type=text]{
+    font:inherit; font-size:17px; color:var(--text); background:var(--panel2);
+    border:1px solid var(--line); border-radius:12px; padding:12px 14px; width:100%; outline:none; text-align:center;
+  }
+  input[type=text]:focus{border-color:var(--gold);}
+  .err{color:#fda4af; font-size:13px; min-height:18px; text-align:center;}
+
+  /* ---------- HOST ---------- */
+  #hostLobby .wrap{display:flex; gap:26px; flex-wrap:wrap; justify-content:center; align-items:stretch;}
+  #qrBox{display:flex; flex-direction:column; align-items:center; gap:10px;}
+  #qr{background:#fff; padding:12px; border-radius:12px; min-width:196px; min-height:196px;}
+  #joinUrl{font-size:12px; color:var(--muted); max-width:250px; word-break:break-all; text-align:center;}
+  #slotList{display:flex; flex-direction:column; gap:10px; min-width:250px;}
+  .slot{display:flex; align-items:center; gap:12px; background:var(--panel2); border:1px dashed var(--line); border-radius:12px; padding:10px 14px; min-height:58px;}
+  .slot.filled{border-style:solid;}
+  .slot .who{font-weight:700;}
+  .slot .st{font-size:12px; color:var(--muted);}
+  .avatarSVG{width:38px; height:38px; flex:0 0 auto;}
+  #hostControls{display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:center;}
+  select{font:inherit; color:var(--text); background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px;}
+  #warn{color:#fda4af; font-size:13px; max-width:560px; text-align:center;}
+
+  #hostGame{gap:8px; padding:8px;}
+  #hud{display:flex; gap:14px; align-items:center; flex-wrap:wrap; justify-content:center;}
+  .hudChip{display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:5px 12px 5px 6px; font-size:14px; font-weight:600;}
+  .hudChip.done{border-color:var(--gold);}
+  .hudChip .avatarSVG{width:26px; height:26px;}
+  #timer{font-variant-numeric:tabular-nums; font-size:22px; font-weight:800; color:var(--gold);}
+  canvas#maze{border-radius:12px;}
+  #bigCount{position:fixed; inset:0; display:none; align-items:center; justify-content:center; font-size:clamp(90px,25vw,220px); font-weight:900; color:var(--gold); text-shadow:0 0 60px rgba(251,191,36,.55); pointer-events:none; z-index:50;}
+
+  #hostResults table{border-collapse:collapse; min-width:min(480px,90vw);}
+  #hostResults td{padding:10px 14px; border-bottom:1px solid var(--line); font-size:17px;}
+  #hostResults tr.first td{color:var(--gold); font-weight:800;}
+  #hostResults .medal{font-size:22px;}
+
+  /* ---------- PLAYER ---------- */
+  .colorGrid{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; width:100%;}
+  .colorOpt{display:flex; flex-direction:column; align-items:center; gap:6px; background:var(--panel2); border:2px solid var(--line); border-radius:14px; padding:10px 4px; cursor:pointer; font-size:11px; color:var(--muted);}
+  .colorOpt .avatarSVG{width:44px; height:44px;}
+  .colorOpt.sel{border-color:var(--gold); color:var(--text);}
+  .colorOpt.taken{opacity:.28; pointer-events:none;}
+  #joinCard{width:min(360px,92vw); display:flex; flex-direction:column; gap:14px; align-items:center;}
+
+  #padWrap{display:flex; flex-direction:column; align-items:center; gap:6vh; width:100%;}
+  #meChip{display:flex; align-items:center; gap:10px; font-size:18px; font-weight:800;}
+  #meChip .avatarSVG{width:34px; height:34px;}
+  #prog{width:min(320px,80vw); height:10px; background:var(--panel2); border-radius:99px; overflow:hidden; border:1px solid var(--line);}
+  #progFill{height:100%; width:0%; background:linear-gradient(90deg,#f59e0b,#fbbf24); transition:width .15s;}
+  #pad{display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); gap:10px; width:min(72vw,340px,45vh); aspect-ratio:1; touch-action:none;}
+  .padBtn{
+    background:var(--panel2); border:1px solid var(--line); border-radius:18px;
+    font-size:34px; color:var(--text); display:flex; align-items:center; justify-content:center;
+    user-select:none; touch-action:none;
+  }
+  .padBtn:active,.padBtn.press{background:var(--gold); color:#1a1203; border-color:var(--gold);}
+  #padCenter{background:transparent; border:none; font-size:26px;}
+  .big{font-size:clamp(34px,9vw,54px); font-weight:900;}
+  .medalBig{font-size:80px;}
+  #playerCount{font-size:clamp(100px,40vw,200px); font-weight:900; color:var(--gold);}
+</style>
+</head>
+<body>
+
+<!-- ============ HOST: LOBBY ============ -->
+<div class="screen" id="hostLobby">
+  <h1 class="logo">🌀 MAZE <span class="a">RUNNER</span></h1>
+  <div class="sub">Scan the QR code to join &middot; up to 4 players</div>
+  <div id="warn"></div>
+  <div class="wrap">
+    <div class="card" id="qrBox">
+      <div id="qr">Connecting…</div>
+      <div id="joinUrl"></div>
+    </div>
+    <div class="card">
+      <div id="slotList"></div>
+    </div>
+  </div>
+  <div id="hostControls">
+    <label class="sub">Maze size:
+      <select id="sizeSel">
+        <option value="13">Easy (13×13)</option>
+        <option value="17" selected>Medium (17×17)</option>
+        <option value="23">Hard (23×23)</option>
+      </select>
+    </label>
+    <button class="primary" id="startBtn" disabled>▶ Start Game</button>
+  </div>
+</div>
+
+<!-- ============ HOST: GAME ============ -->
+<div class="screen" id="hostGame">
+  <div id="hud">
+    <div id="timer">00:00.0</div>
+    <div id="hudChips" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+  </div>
+  <canvas id="maze"></canvas>
+</div>
+<div id="bigCount"></div>
+
+<!-- ============ HOST: RESULTS ============ -->
+<div class="screen" id="hostResults">
+  <h1 class="logo">🏆 <span class="a">RESULTS</span></h1>
+  <div class="card"><table id="resTable"></table></div>
+  <div style="display:flex;gap:12px;">
+    <button class="primary" id="againBtn">🔄 Play Again</button>
+    <button id="lobbyBtn">👥 Back to Lobby</button>
+  </div>
+</div>
+
+<!-- ============ PLAYER: JOIN ============ -->
+<div class="screen" id="pJoin">
+  <h1 class="logo" style="font-size:24px;">🌀 MAZE <span class="a">RUNNER</span></h1>
+  <div class="card" id="joinCard">
+    <div class="sub" id="pConnStatus">Connecting to host…</div>
+    <input type="text" id="nameInput" maxlength="12" placeholder="Your name" autocomplete="off">
+    <div class="colorGrid" id="colorGrid"></div>
+    <div class="err" id="joinErr"></div>
+    <button class="primary" id="joinBtn" style="width:100%;" disabled>Join Game</button>
+  </div>
+</div>
+
+<!-- ============ PLAYER: WAITING ============ -->
+<div class="screen" id="pWait">
+  <div id="meChip"></div>
+  <div class="big" style="text-align:center;">You're in! 🎉</div>
+  <div class="sub">Waiting for the host to start…</div>
+</div>
+
+<!-- ============ PLAYER: COUNTDOWN ============ -->
+<div class="screen" id="pCount"><div id="playerCount">3</div></div>
+
+<!-- ============ PLAYER: PAD ============ -->
+<div class="screen" id="pPad">
+  <div id="padWrap">
+    <div id="meChip2"></div>
+    <div id="prog"><div id="progFill"></div></div>
+    <div id="pad">
+      <div></div><div class="padBtn" data-d="u">▲</div><div></div>
+      <div class="padBtn" data-d="l">◀</div><div id="padCenter">🌀</div><div class="padBtn" data-d="r">▶</div>
+      <div></div><div class="padBtn" data-d="d">▼</div><div></div>
+    </div>
+    <div class="sub">Hold a button to keep moving</div>
+  </div>
+</div>
+
+<!-- ============ PLAYER: FINISHED ============ -->
+<div class="screen" id="pDone">
+  <div class="medalBig" id="doneMedal">🏅</div>
+  <div class="big" id="doneTitle"></div>
+  <div class="sub" id="doneSub"></div>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   MAZE RUNNER — single-file multiplayer (host + player)
+   Host:   open this page with no URL parameters
+   Player: opens via QR link  ?h=<host peer id>
+   ================================================================ */
+
+const COLORS = {
+  red:    {hex:"#ef4444", dark:"#b91c1c", label:"Red"},
+  blue:   {hex:"#3b82f6", dark:"#1d4ed8", label:"Blue"},
+  green:  {hex:"#22c55e", dark:"#15803d", label:"Green"},
+  yellow: {hex:"#eab308", dark:"#a16207", label:"Yellow"},
+};
+const COLOR_KEYS = Object.keys(COLORS);
+const qs = new URLSearchParams(location.search);
+const HOST_ID_PARAM = qs.get("h");
+const IS_PLAYER = !!HOST_ID_PARAM;
+
+const $ = id => document.getElementById(id);
+function show(id){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+function avatarSVG(colorKey, size){
+  const c = COLORS[colorKey];
+  return `<svg class="avatarSVG" ${size?`style="width:${size}px;height:${size}px"`:""} viewBox="0 0 40 40">
+    <rect x="4" y="6" width="32" height="30" rx="10" fill="${c.hex}" stroke="${c.dark}" stroke-width="2"/>
+    <circle cx="14" cy="19" r="4.4" fill="#fff"/><circle cx="26" cy="19" r="4.4" fill="#fff"/>
+    <circle cx="15" cy="20" r="2" fill="#1e293b"/><circle cx="27" cy="20" r="2" fill="#1e293b"/>
+    <path d="M14 28 Q20 32 26 28" stroke="#1e293b" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  </svg>`;
+}
+function fmtTime(ms){
+  const m = Math.floor(ms/60000), s = Math.floor(ms%60000/1000), t = Math.floor(ms%1000/100);
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${t}`;
+}
+/* --- tiny sound effects (WebAudio, no files) --- */
+let AC = null;
+function beep(freq, dur=0.12, type="square", vol=0.12){
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime+dur);
+  }catch(e){}
+}
+function fanfare(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.25,"triangle",0.15), i*140)); }
+
+/* ================================================================
+   MAZE GENERATION  — grid of 0=floor 1=wall, odd width/height.
+   Recursive backtracker on odd cells; 3×3 "Destiny" room carved
+   at the centre afterwards (only removes walls → stays connected).
+   ================================================================ */
+function genMaze(n, rng=Math.random){
+  const g = Array.from({length:n},()=>Array(n).fill(1));
+  const stack = [[1,1]];
+  g[1][1] = 0;
+  const dirs = [[0,-2],[0,2],[-2,0],[2,0]];
+  while(stack.length){
+    const [x,y] = stack[stack.length-1];
+    const cand = dirs
+      .map(([dx,dy])=>[x+dx,y+dy,dx,dy])
+      .filter(([nx,ny])=>nx>0&&ny>0&&nx<n-1&&ny<n-1&&g[ny][nx]===1);
+    if(!cand.length){ stack.pop(); continue; }
+    const [nx,ny,dx,dy] = cand[Math.floor(rng()*cand.length)];
+    g[y+dy/2][x+dx/2] = 0;
+    g[ny][nx] = 0;
+    stack.push([nx,ny]);
+  }
+  const c = Math.floor(n/2);
+  for(let y=c-1;y<=c+1;y++) for(let x=c-1;x<=c+1;x++) g[y][x]=0;
+  return {g, n, cx:c, cy:c};
+}
+function bfsDist(maze){
+  const {g,n,cx,cy} = maze;
+  const d = Array.from({length:n},()=>Array(n).fill(-1));
+  const q = [[cx,cy]]; d[cy][cx]=0;
+  while(q.length){
+    const [x,y] = q.shift();
+    for(const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]){
+      const nx=x+dx, ny=y+dy;
+      if(nx>=0&&ny>=0&&nx<n&&ny<n&&g[ny][nx]===0&&d[ny][nx]<0){
+        d[ny][nx]=d[y][x]+1; q.push([nx,ny]);
+      }
+    }
+  }
+  return d;
+}
+const inDestiny = (maze,x,y)=> Math.abs(x-maze.cx)<=1 && Math.abs(y-maze.cy)<=1;
+
+/* ================================================================ */
+if(IS_PLAYER) initPlayer(); else initHost();
+
+/* ================================================================
+   HOST
+   ================================================================ */
+function initHost(){
+  show("hostLobby");
+  if(location.protocol === "file:"){
+    $("warn").textContent = "⚠ This file is opened locally — phones can't scan in. Upload it to a free host (e.g. Netlify Drop) and open that link instead.";
+  }
+
+  const players = {};           // peerId -> {conn,name,color,x,y,rx,ry,finished,time,rank,connected}
+  let phase = "lobby";          // lobby | countdown | play | results
+  let maze = null, dist = null, startDist = {};
+  let startTime = 0, finishOrder = 0, raf = 0;
+
+  const peerId = "mzr-" + Math.random().toString(36).slice(2,8);
+  const peer = new Peer(peerId, {debug:0});
+
+  peer.on("open", id=>{
+    const base = location.origin + location.pathname;
+    const url = base + "?h=" + id;
+    $("qr").innerHTML = "";
+    new QRCode($("qr"), {text:url, width:196, height:196, correctLevel:QRCode.CorrectLevel.M});
+    $("joinUrl").textContent = url;
+  });
+  peer.on("error", e=>{
+    if(e.type==="unavailable-id") location.reload();
+    else $("warn").textContent = "⚠ Connection error: " + e.type + " — check your internet and reload.";
+  });
+
+  peer.on("connection", conn=>{
+    conn.on("open", ()=>{
+      conn.on("data", msg=>onMsg(conn,msg));
+      conn.on("close", ()=>onLeave(conn.peer));
+      send(conn, {t:"hello", taken:takenColors(), full:Object.keys(players).length>=4, phase});
+    });
+  });
+
+  const send = (conn,m)=>{ try{ conn.send(m); }catch(e){} };
+  const bcast = m => Object.values(players).forEach(p=>p.connected&&send(p.conn,m));
+  const takenColors = ()=>Object.values(players).filter(p=>p.connected).map(p=>p.color);
+
+  function onMsg(conn, m){
+    const p = players[conn.peer];
+    if(m.t==="join"){
+      if(phase!=="lobby"){ send(conn,{t:"reject",why:"Game already in progress."}); return; }
+      if(Object.keys(players).length>=4 && !players[conn.peer]){ send(conn,{t:"reject",why:"Game is full (4 players)."}); return; }
+      if(takenColors().includes(m.color)){ send(conn,{t:"reject",why:"Colour just taken — pick another.", taken:takenColors()}); return; }
+      const name = String(m.name||"").trim().slice(0,12) || "Player";
+      players[conn.peer] = {conn, name, color:m.color, connected:true,
+                            x:0,y:0,rx:0,ry:0,finished:false,time:0,rank:0};
+      send(conn,{t:"joined", name, color:m.color});
+      beep(880,0.1,"triangle");
+      renderLobby();
+      bcast({t:"hello", taken:takenColors(), full:Object.keys(players).length>=4, phase});
+    }
+    else if(m.t==="move" && p && phase==="play" && !p.finished){
+      const d = {u:[0,-1],d:[0,1],l:[-1,0],r:[1,0]}[m.d];
+      if(!d) return;
+      const nx=p.x+d[0], ny=p.y+d[1];
+      if(nx<0||ny<0||nx>=maze.n||ny>=maze.n||maze.g[ny][nx]===1) return;
+      p.x=nx; p.y=ny;
+      send(p.conn,{t:"prog", v: 1 - (dist[ny][nx]/(startDist[conn.peer]||1))});
+      if(inDestiny(maze,nx,ny)) onFinish(conn.peer);
+    }
+  }
+  function onLeave(id){
+    const p = players[id];
+    if(!p) return;
+    if(phase==="lobby"){ delete players[id]; renderLobby(); bcast({t:"hello",taken:takenColors(),full:false,phase}); }
+    else { p.connected=false; renderHud(); checkEnd(); }
+  }
+
+  /* ---- lobby UI ---- */
+  function renderLobby(){
+    const list = Object.values(players);
+    $("slotList").innerHTML = [0,1,2,3].map(i=>{
+      const p = list[i];
+      return p
+        ? `<div class="slot filled">${avatarSVG(p.color)}<div><div class="who">${esc(p.name)}</div><div class="st">${COLORS[p.color].label} · ready ✔</div></div></div>`
+        : `<div class="slot"><div style="width:38px;text-align:center;font-size:22px;color:var(--muted)">📱</div><div class="st">Waiting for player ${i+1}…</div></div>`;
+    }).join("");
+    $("startBtn").disabled = list.length < 1;
+    $("startBtn").textContent = list.length<2 ? "▶ Start (solo run)" : `▶ Start Game (${list.length} players)`;
+  }
+  const esc = s=>s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  renderLobby();
+
+  /* ---- start / countdown ---- */
+  $("startBtn").onclick = startGame;
+  $("againBtn").onclick = startGame;
+  $("lobbyBtn").onclick = ()=>{
+    phase="lobby";
+    Object.keys(players).forEach(id=>{ if(!players[id].connected) delete players[id]; });
+    bcast({t:"lobby"});
+    renderLobby(); show("hostLobby");
+    bcast({t:"hello", taken:takenColors(), full:Object.keys(players).length>=4, phase});
+  };
+
+  function startGame(){
+    Object.keys(players).forEach(id=>{ if(!players[id].connected) delete players[id]; });
+    const list = Object.values(players);
+    if(!list.length) return;
+    const n = parseInt($("sizeSel").value,10);
+    maze = genMaze(n);
+    dist = bfsDist(maze);
+    const corners = [[1,1],[n-2,1],[1,n-2],[n-2,n-2]].sort(()=>Math.random()-0.5);
+    list.forEach((p,i)=>{
+      [p.x,p.y] = corners[i%4];
+      p.rx=p.x; p.ry=p.y; p.finished=false; p.time=0; p.rank=0;
+      startDist[p.conn.peer] = dist[p.y][p.x];
+    });
+    finishOrder = 0;
+    phase = "countdown";
+    show("hostGame"); sizeCanvas(); renderHud();
+    let c = 3;
+    bcast({t:"count", n:c}); showCount(c); beep(440);
+    const iv = setInterval(()=>{
+      c--;
+      if(c>0){ bcast({t:"count",n:c}); showCount(c); beep(440); }
+      else{
+        clearInterval(iv);
+        showCount("GO!"); beep(880,0.3); setTimeout(()=>$("bigCount").style.display="none", 700);
+        phase="play"; startTime = performance.now();
+        bcast({t:"go"});
+        cancelAnimationFrame(raf); loop();
+      }
+    }, 900);
+  }
+  function showCount(v){ const b=$("bigCount"); b.style.display="flex"; b.textContent=v; }
+
+  /* ---- finishing ---- */
+  function onFinish(id){
+    const p = players[id];
+    p.finished = true;
+    p.time = performance.now()-startTime;
+    p.rank = ++finishOrder;
+    send(p.conn, {t:"finish", rank:p.rank, time:p.time});
+    fanfare(); renderHud();
+    checkEnd();
+  }
+  function checkEnd(){
+    const act = Object.values(players).filter(p=>p.connected);
+    const unfinished = act.filter(p=>!p.finished);
+    // Last player standing doesn't need to reach the Destiny — game over.
+    if((act.length>=2 && unfinished.length<=1) || (act.length<2 && unfinished.length===0)){
+      if(phase!=="play") return;
+      phase="results";
+      unfinished.forEach(p=>send(p.conn,{t:"lost"}));
+      setTimeout(showResults, 1200);
+    }
+  }
+  function showResults(){
+    cancelAnimationFrame(raf);
+    const all = Object.values(players);
+    const done = all.filter(p=>p.finished).sort((a,b)=>a.rank-b.rank);
+    const lost = all.filter(p=>!p.finished);
+    const medals = ["🥇","🥈","🥉","🏅"];
+    $("resTable").innerHTML =
+      done.map((p,i)=>`<tr class="${i===0?"first":""}">
+        <td class="medal">${medals[i]||"🏅"}</td><td>${avatarSVG(p.color,30)}</td>
+        <td>${esc(p.name)}</td><td style="text-align:right">${fmtTime(p.time)}</td></tr>`).join("") +
+      lost.map(p=>`<tr style="opacity:.55">
+        <td class="medal">💀</td><td>${avatarSVG(p.color,30)}</td>
+        <td>${esc(p.name)}</td><td style="text-align:right">${p.connected?"Lost in the maze":"Disconnected"}</td></tr>`).join("");
+    show("hostResults");
+  }
+
+  /* ---- rendering ---- */
+  const cv = $("maze"), ctx = cv.getContext("2d");
+  let cell = 20;
+  function sizeCanvas(){
+    const pad = 110;
+    const s = Math.min(window.innerWidth-20, window.innerHeight-pad);
+    cell = Math.floor(s/maze.n);
+    cv.width = cv.height = cell*maze.n;
+  }
+  window.addEventListener("resize", ()=>{ if(maze && (phase==="play"||phase==="countdown")) sizeCanvas(); });
+
+  function renderHud(){
+    $("hudChips").innerHTML = Object.values(players).map(p=>
+      `<div class="hudChip ${p.finished?"done":""}">${avatarSVG(p.color)}
+        <span>${esc(p.name)}</span>
+        <span class="st">${p.finished?"🏆 "+fmtTime(p.time):(p.connected?"":"⚠ offline")}</span></div>`).join("");
+  }
+
+  function loop(){
+    raf = requestAnimationFrame(loop);
+    if(phase==="play") $("timer").textContent = fmtTime(performance.now()-startTime);
+    draw();
+  }
+  function draw(){
+    const n = maze.n;
+    ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,cv.width,cv.height);
+    // boxy walls
+    for(let y=0;y<n;y++) for(let x=0;x<n;x++){
+      if(maze.g[y][x]===1){
+        ctx.fillStyle = "#334760";
+        ctx.fillRect(x*cell, y*cell, cell, cell);
+        ctx.fillStyle = "#42586f";
+        ctx.fillRect(x*cell, y*cell, cell, Math.max(2,cell*0.18));
+      }
+    }
+    // Destiny glow
+    const cx = (maze.cx+0.5)*cell, cy=(maze.cy+0.5)*cell;
+    const pulse = 0.75 + 0.25*Math.sin(performance.now()/300);
+    const grad = ctx.createRadialGradient(cx,cy,2,cx,cy,cell*2.2*pulse);
+    grad.addColorStop(0,"rgba(251,191,36,.85)"); grad.addColorStop(1,"rgba(251,191,36,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(cx-cell*2.5, cy-cell*2.5, cell*5, cell*5);
+    ctx.font = `${cell*1.4}px serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText("⭐", cx, cy+cell*0.05);
+    // players
+    for(const p of Object.values(players)){
+      p.rx += (p.x-p.rx)*0.35; p.ry += (p.y-p.ry)*0.35;
+      const px=(p.rx+0.5)*cell, py=(p.ry+0.5)*cell, r=cell*0.38;
+      const c = COLORS[p.color];
+      ctx.globalAlpha = p.finished ? 0.35 : 1;
+      ctx.fillStyle = c.hex; ctx.strokeStyle = c.dark; ctx.lineWidth = Math.max(1.5, cell*0.06);
+      roundRect(px-r, py-r, r*2, r*2, r*0.5); ctx.fill(); ctx.stroke();
+      // eyes
+      ctx.fillStyle="#fff";
+      ctx.beginPath(); ctx.arc(px-r*0.35,py-r*0.15,r*0.26,0,7); ctx.arc(px+r*0.35,py-r*0.15,r*0.26,0,7); ctx.fill();
+      ctx.fillStyle="#1e293b";
+      ctx.beginPath(); ctx.arc(px-r*0.3,py-r*0.1,r*0.12,0,7); ctx.arc(px+r*0.4,py-r*0.1,r*0.12,0,7); ctx.fill();
+      // name label
+      ctx.globalAlpha = 1;
+      ctx.font = `700 ${Math.max(9,cell*0.42)}px Segoe UI, sans-serif`;
+      ctx.fillStyle = "rgba(11,17,32,.75)";
+      const w = ctx.measureText(p.name).width;
+      ctx.fillRect(px-w/2-4, py-r-cell*0.62, w+8, cell*0.5);
+      ctx.fillStyle = c.hex;
+      ctx.fillText(p.name, px, py-r-cell*0.36);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+}
+
+/* ================================================================
+   PLAYER (phone)
+   ================================================================ */
+function initPlayer(){
+  show("pJoin");
+  let myColor = null, myName = "", conn = null, joined = false;
+  let taken = [];
+
+  // colour picker
+  function renderColors(){
+    $("colorGrid").innerHTML = COLOR_KEYS.map(k=>
+      `<div class="colorOpt ${myColor===k?"sel":""} ${taken.includes(k)&&myColor!==k?"taken":""}" data-c="${k}">
+        ${avatarSVG(k)}<span>${COLORS[k].label}</span></div>`).join("");
+    document.querySelectorAll(".colorOpt").forEach(el=>{
+      el.onclick = ()=>{ myColor = el.dataset.c; renderColors(); validate(); beep(660,0.06,"sine",0.06); };
+    });
+  }
+  function validate(){
+    $("joinBtn").disabled = !(conn && conn.open && myColor && $("nameInput").value.trim());
+  }
+  $("nameInput").addEventListener("input", validate);
+  renderColors();
+
+  const peer = new Peer({debug:0});
+  peer.on("open", ()=>{
+    conn = peer.connect(HOST_ID_PARAM, {reliable:true});
+    conn.on("open", ()=>{ $("pConnStatus").textContent="Connected ✔ — pick your character"; validate(); });
+    conn.on("data", onMsg);
+    conn.on("close", ()=>{ $("pConnStatus").textContent="❌ Lost connection to host"; if(!joined){ $("joinErr").textContent="Connection lost — rescan the QR code."; } });
+  });
+  peer.on("error", e=>{
+    $("pConnStatus").textContent = "❌ Could not reach host";
+    $("joinErr").textContent = e.type==="peer-unavailable" ? "Host not found — ask the host to reopen the game and rescan." : ("Error: "+e.type);
+  });
+
+  $("joinBtn").onclick = ()=>{
+    myName = $("nameInput").value.trim().slice(0,12);
+    $("joinErr").textContent = "";
+    conn.send({t:"join", name:myName, color:myColor});
+  };
+
+  function onMsg(m){
+    if(m.t==="hello"){
+      taken = (m.taken||[]).filter(c=>c!==myColor);
+      if(!joined){
+        renderColors();
+        if(m.phase && m.phase!=="lobby") $("joinErr").textContent="Game in progress — wait for the next round.";
+        else if(m.full) $("joinErr").textContent="Game is full (4 players).";
+      }
+    }
+    else if(m.t==="reject"){ $("joinErr").textContent = m.why; if(m.taken){ taken=m.taken; myColor=null; renderColors(); validate(); } }
+    else if(m.t==="joined"){
+      joined = true;
+      const chip = `${avatarSVG(myColor)}<span>${myName}</span>`;
+      $("meChip").innerHTML = chip; $("meChip2").innerHTML = chip;
+      try{ navigator.wakeLock && navigator.wakeLock.request("screen"); }catch(e){}
+      show("pWait"); beep(880,0.15,"triangle");
+    }
+    else if(m.t==="count"){ $("playerCount").textContent = m.n; show("pCount"); beep(440); if(navigator.vibrate) navigator.vibrate(60); }
+    else if(m.t==="go"){ $("progFill").style.width="0%"; show("pPad"); beep(880,0.3); if(navigator.vibrate) navigator.vibrate([80,40,80]); }
+    else if(m.t==="prog"){ $("progFill").style.width = Math.round(Math.max(0,Math.min(1,m.v))*100)+"%"; }
+    else if(m.t==="finish"){
+      stopHold();
+      const medals=["🥇","🥈","🥉","🏅"];
+      $("doneMedal").textContent = medals[m.rank-1]||"🏅";
+      $("doneTitle").textContent = m.rank===1 ? "WINNER!" : `You finished #${m.rank}`;
+      $("doneSub").textContent = "Time: " + fmtTime(m.time);
+      show("pDone"); fanfare(); if(navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
+    }
+    else if(m.t==="lost"){
+      stopHold();
+      $("doneMedal").textContent = "💀";
+      $("doneTitle").textContent = "Lost in the maze…";
+      $("doneSub").textContent = "Everyone else reached the Destiny. Next round!";
+      show("pDone"); beep(220,0.4,"sawtooth",0.08);
+    }
+    else if(m.t==="lobby"){ show("pWait"); }
+  }
+
+  /* ---- D-pad: tap = 1 step, hold = repeat ---- */
+  let holdIv = null;
+  function stopHold(){ clearInterval(holdIv); holdIv=null; document.querySelectorAll(".padBtn").forEach(b=>b.classList.remove("press")); }
+  document.querySelectorAll(".padBtn").forEach(btn=>{
+    const d = btn.dataset.d;
+    const start = ev=>{
+      ev.preventDefault();
+      stopHold();
+      btn.classList.add("press");
+      conn && conn.open && conn.send({t:"move", d});
+      if(navigator.vibrate) navigator.vibrate(12);
+      holdIv = setInterval(()=>{ conn && conn.open && conn.send({t:"move", d}); }, 130);
+    };
+    btn.addEventListener("pointerdown", start);
+    btn.addEventListener("pointerup", stopHold);
+    btn.addEventListener("pointercancel", stopHold);
+    btn.addEventListener("pointerleave", stopHold);
+  });
+  document.addEventListener("contextmenu", e=>{ if(e.target.closest("#pad")) e.preventDefault(); });
+}
+</script>
+</body>
+</html>
