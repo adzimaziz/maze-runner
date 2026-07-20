@@ -125,6 +125,7 @@
 <!-- ============ HOST: GAME ============ -->
 <div class="screen" id="hostGame">
   <div id="hud">
+    <div class="hudChip" id="stageChip" style="color:var(--gold);padding:5px 14px;">Stage 1</div>
     <div id="timer">00:00.0</div>
     <div id="hudChips" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
   </div>
@@ -134,11 +135,12 @@
 
 <!-- ============ HOST: RESULTS ============ -->
 <div class="screen" id="hostResults">
-  <h1 class="logo">🏆 <span class="a">RESULTS</span></h1>
+  <h1 class="logo" id="resTitle">🏆 <span class="a">RESULTS</span></h1>
   <div class="card"><table id="resTable"></table></div>
   <div style="display:flex;gap:12px;">
-    <button class="primary" id="againBtn">🔄 Play Again</button>
-    <button id="lobbyBtn">👥 Back to Lobby</button>
+    <button class="primary" id="nextBtn">▶ Next Stage</button>
+    <button id="endBtn">🏁 End Game</button>
+    <button class="primary" id="backLobbyBtn" style="display:none">👥 Back to Lobby</button>
   </div>
 </div>
 
@@ -162,12 +164,13 @@
 </div>
 
 <!-- ============ PLAYER: COUNTDOWN ============ -->
-<div class="screen" id="pCount"><div id="playerCount">3</div></div>
+<div class="screen" id="pCount"><div class="sub" id="stageLbl" style="font-size:20px;font-weight:800;color:var(--gold)"></div><div id="playerCount">3</div></div>
 
 <!-- ============ PLAYER: PAD ============ -->
 <div class="screen" id="pPad">
   <div id="padWrap">
     <div id="meChip2"></div>
+    <div class="sub" id="padStage"></div>
     <div id="prog"><div id="progFill"></div></div>
     <div id="pad">
       <div></div><div class="padBtn" data-d="u">▲</div><div></div>
@@ -291,10 +294,12 @@ function initHost(){
     $("warn").textContent = "⚠ This file is opened locally — phones can't scan in. Upload it to a free host (e.g. Netlify Drop) and open that link instead.";
   }
 
-  const players = {};           // peerId -> {conn,name,color,x,y,rx,ry,finished,time,rank,connected}
+  const players = {};           // peerId -> {conn,name,color,x,y,rx,ry,finished,time,rank,pts,score,connected}
   let phase = "lobby";          // lobby | countdown | play | results
   let maze = null, dist = null, startDist = {};
   let startTime = 0, finishOrder = 0, raf = 0;
+  let stage = 0, baseSize = 17; // stage number + maze size chosen in lobby
+  const PTS = [3,2,1];          // points for 1st / 2nd / 3rd (last gets 0)
 
   const peerId = "mzr-" + Math.random().toString(36).slice(2,8);
   const peer = new Peer(peerId, {debug:0});
@@ -331,7 +336,7 @@ function initHost(){
       if(takenColors().includes(m.color)){ send(conn,{t:"reject",why:"Colour just taken — pick another.", taken:takenColors()}); return; }
       const name = String(m.name||"").trim().slice(0,12) || "Player";
       players[conn.peer] = {conn, name, color:m.color, connected:true,
-                            x:0,y:0,rx:0,ry:0,finished:false,time:0,rank:0};
+                            x:0,y:0,rx:0,ry:0,finished:false,time:0,rank:0,pts:0,score:0};
       send(conn,{t:"joined", name, color:m.color});
       beep(880,0.1,"triangle");
       renderLobby();
@@ -369,43 +374,54 @@ function initHost(){
   const esc = s=>s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   renderLobby();
 
-  /* ---- start / countdown ---- */
-  $("startBtn").onclick = startGame;
-  $("againBtn").onclick = startGame;
-  $("lobbyBtn").onclick = ()=>{
+  /* ---- start / stages / countdown ---- */
+  $("startBtn").onclick = ()=>{           // fresh game from lobby: reset scores
+    stage = 0;
+    baseSize = parseInt($("sizeSel").value,10);
+    Object.values(players).forEach(p=>{ p.score=0; p.pts=0; });
+    nextStage();
+  };
+  $("nextBtn").onclick = nextStage;
+  $("endBtn").onclick = showFinal;
+  $("backLobbyBtn").onclick = backToLobby;
+  function backToLobby(){
     phase="lobby";
     Object.keys(players).forEach(id=>{ if(!players[id].connected) delete players[id]; });
     bcast({t:"lobby"});
     renderLobby(); show("hostLobby");
     bcast({t:"hello", taken:takenColors(), full:Object.keys(players).length>=4, phase});
-  };
+  }
 
-  function startGame(){
+  function nextStage(){
     Object.keys(players).forEach(id=>{ if(!players[id].connected) delete players[id]; });
     const list = Object.values(players);
-    if(!list.length) return;
-    const n = parseInt($("sizeSel").value,10);
+    if(!list.length){ backToLobby(); return; }
+    stage++;
+    const n = Math.min(baseSize + (stage-1)*2, 27);   // maze grows a little each stage
     maze = genMaze(n);
     dist = bfsDist(maze);
-    const corners = [[1,1],[n-2,1],[1,n-2],[n-2,n-2]].sort(()=>Math.random()-0.5);
-    list.forEach((p,i)=>{
-      [p.x,p.y] = corners[i%4];
-      p.rx=p.x; p.ry=p.y; p.finished=false; p.time=0; p.rank=0;
-      startDist[p.conn.peer] = dist[p.y][p.x];
+    // everyone starts at the SAME random corner
+    const corners = [[1,1],[n-2,1],[1,n-2],[n-2,n-2]];
+    const [sx,sy] = corners[Math.floor(Math.random()*4)];
+    list.forEach(p=>{
+      p.x=sx; p.y=sy; p.rx=sx; p.ry=sy;
+      p.finished=false; p.time=0; p.rank=0; p.pts=0;
+      startDist[p.conn.peer] = dist[sy][sx];
     });
     finishOrder = 0;
     phase = "countdown";
+    $("stageChip").textContent = "Stage " + stage;
     show("hostGame"); sizeCanvas(); renderHud();
     let c = 3;
-    bcast({t:"count", n:c}); showCount(c); beep(440);
+    bcast({t:"count", n:c, stage}); showCount(c); beep(440);
     const iv = setInterval(()=>{
       c--;
-      if(c>0){ bcast({t:"count",n:c}); showCount(c); beep(440); }
+      if(c>0){ bcast({t:"count",n:c,stage}); showCount(c); beep(440); }
       else{
         clearInterval(iv);
         showCount("GO!"); beep(880,0.3); setTimeout(()=>$("bigCount").style.display="none", 700);
         phase="play"; startTime = performance.now();
-        bcast({t:"go"});
+        bcast({t:"go", stage});
         cancelAnimationFrame(raf); loop();
       }
     }, 900);
@@ -418,7 +434,9 @@ function initHost(){
     p.finished = true;
     p.time = performance.now()-startTime;
     p.rank = ++finishOrder;
-    send(p.conn, {t:"finish", rank:p.rank, time:p.time});
+    p.pts = PTS[p.rank-1] || 0;
+    p.score += p.pts;
+    send(p.conn, {t:"finish", rank:p.rank, time:p.time, pts:p.pts, total:p.score});
     fanfare(); renderHud();
     checkEnd();
   }
@@ -429,7 +447,7 @@ function initHost(){
     if((act.length>=2 && unfinished.length<=1) || (act.length<2 && unfinished.length===0)){
       if(phase!=="play") return;
       phase="results";
-      unfinished.forEach(p=>send(p.conn,{t:"lost"}));
+      unfinished.forEach(p=>send(p.conn,{t:"lost", total:p.score}));
       setTimeout(showResults, 1200);
     }
   }
@@ -439,13 +457,35 @@ function initHost(){
     const done = all.filter(p=>p.finished).sort((a,b)=>a.rank-b.rank);
     const lost = all.filter(p=>!p.finished);
     const medals = ["🥇","🥈","🥉","🏅"];
+    $("resTitle").innerHTML = `🏁 STAGE ${stage} <span class="a">RESULTS</span>`;
     $("resTable").innerHTML =
+      `<tr style="color:var(--muted);font-size:13px"><td></td><td></td><td>Player</td><td style="text-align:right">Time</td><td style="text-align:right">Points</td><td style="text-align:right">⭐ Total</td></tr>` +
       done.map((p,i)=>`<tr class="${i===0?"first":""}">
         <td class="medal">${medals[i]||"🏅"}</td><td>${avatarSVG(p.color,30)}</td>
-        <td>${esc(p.name)}</td><td style="text-align:right">${fmtTime(p.time)}</td></tr>`).join("") +
+        <td>${esc(p.name)}</td><td style="text-align:right">${fmtTime(p.time)}</td>
+        <td style="text-align:right">+${p.pts}</td><td style="text-align:right">${p.score}</td></tr>`).join("") +
       lost.map(p=>`<tr style="opacity:.55">
         <td class="medal">💀</td><td>${avatarSVG(p.color,30)}</td>
-        <td>${esc(p.name)}</td><td style="text-align:right">${p.connected?"Lost in the maze":"Disconnected"}</td></tr>`).join("");
+        <td>${esc(p.name)}</td><td style="text-align:right">${p.connected?"Lost in the maze":"Disconnected"}</td>
+        <td style="text-align:right">+0</td><td style="text-align:right">${p.score}</td></tr>`).join("");
+    $("nextBtn").style.display = ""; $("endBtn").style.display = "";
+    $("backLobbyBtn").style.display = "none";
+    show("hostResults");
+  }
+  function showFinal(){
+    cancelAnimationFrame(raf);
+    const all = Object.values(players).slice().sort((a,b)=>b.score-a.score || a.rank-b.rank);
+    const medals = ["🥇","🥈","🥉","🏅"];
+    $("resTitle").innerHTML = `🏆 <span class="a">FINAL RESULTS</span> — ${stage} stage${stage>1?"s":""}`;
+    $("resTable").innerHTML =
+      all.map((p,i)=>`<tr class="${i===0?"first":""}">
+        <td class="medal">${medals[i]||"🏅"}</td><td>${avatarSVG(p.color,30)}</td>
+        <td>${esc(p.name)}${i===0?" — CHAMPION!":""}</td>
+        <td style="text-align:right">⭐ ${p.score} pts</td></tr>`).join("");
+    all.forEach((p,i)=>{ if(p.connected) send(p.conn, {t:"final", place:i+1, total:p.score, champ:i===0}); });
+    $("nextBtn").style.display = "none"; $("endBtn").style.display = "none";
+    $("backLobbyBtn").style.display = "";
+    fanfare();
     show("hostResults");
   }
 
@@ -463,7 +503,7 @@ function initHost(){
   function renderHud(){
     $("hudChips").innerHTML = Object.values(players).map(p=>
       `<div class="hudChip ${p.finished?"done":""}">${avatarSVG(p.color)}
-        <span>${esc(p.name)}</span>
+        <span>${esc(p.name)}</span><span class="st">⭐${p.score}</span>
         <span class="st">${p.finished?"🏆 "+fmtTime(p.time):(p.connected?"":"⚠ offline")}</span></div>`).join("");
   }
 
@@ -494,9 +534,18 @@ function initHost(){
     ctx.font = `${cell*1.4}px serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
     ctx.fillText("⭐", cx, cy+cell*0.05);
     // players
-    for(const p of Object.values(players)){
+    const plist = Object.values(players);
+    for(const p of plist){
       p.rx += (p.x-p.rx)*0.35; p.ry += (p.y-p.ry)*0.35;
-      const px=(p.rx+0.5)*cell, py=(p.ry+0.5)*cell, r=cell*0.38;
+      let px=(p.rx+0.5)*cell, py=(p.ry+0.5)*cell, r=cell*0.38;
+      // fan out players sharing the same cell so all stay visible
+      const mates = plist.filter(q=>q.x===p.x && q.y===p.y && !q.finished);
+      if(!p.finished && mates.length>1){
+        const i = mates.indexOf(p);
+        px += ((i%2)?1:-1)*cell*0.16;
+        py += ((i<2)?-1:1)*cell*0.16;
+        r = cell*0.30;
+      }
       const c = COLORS[p.color];
       ctx.globalAlpha = p.finished ? 0.35 : 1;
       ctx.fillStyle = c.hex; ctx.strokeStyle = c.dark; ctx.lineWidth = Math.max(1.5, cell*0.06);
@@ -582,23 +631,30 @@ function initPlayer(){
       try{ navigator.wakeLock && navigator.wakeLock.request("screen"); }catch(e){}
       show("pWait"); beep(880,0.15,"triangle");
     }
-    else if(m.t==="count"){ $("playerCount").textContent = m.n; show("pCount"); beep(440); if(navigator.vibrate) navigator.vibrate(60); }
-    else if(m.t==="go"){ $("progFill").style.width="0%"; show("pPad"); beep(880,0.3); if(navigator.vibrate) navigator.vibrate([80,40,80]); }
+    else if(m.t==="count"){ $("stageLbl").textContent = "STAGE " + (m.stage||1); $("playerCount").textContent = m.n; show("pCount"); beep(440); if(navigator.vibrate) navigator.vibrate(60); }
+    else if(m.t==="go"){ $("padStage").textContent = "Stage " + (m.stage||1); $("progFill").style.width="0%"; show("pPad"); beep(880,0.3); if(navigator.vibrate) navigator.vibrate([80,40,80]); }
     else if(m.t==="prog"){ $("progFill").style.width = Math.round(Math.max(0,Math.min(1,m.v))*100)+"%"; }
     else if(m.t==="finish"){
       stopHold();
       const medals=["🥇","🥈","🥉","🏅"];
       $("doneMedal").textContent = medals[m.rank-1]||"🏅";
-      $("doneTitle").textContent = m.rank===1 ? "WINNER!" : `You finished #${m.rank}`;
-      $("doneSub").textContent = "Time: " + fmtTime(m.time);
+      $("doneTitle").textContent = m.rank===1 ? "STAGE WINNER!" : `You finished #${m.rank}`;
+      $("doneSub").textContent = `Time ${fmtTime(m.time)} · +${m.pts} pts · Total ⭐ ${m.total}`;
       show("pDone"); fanfare(); if(navigator.vibrate) navigator.vibrate([100,50,100,50,200]);
     }
     else if(m.t==="lost"){
       stopHold();
       $("doneMedal").textContent = "💀";
       $("doneTitle").textContent = "Lost in the maze…";
-      $("doneSub").textContent = "Everyone else reached the Destiny. Next round!";
+      $("doneSub").textContent = `+0 pts · Total ⭐ ${m.total||0} — catch up next stage!`;
       show("pDone"); beep(220,0.4,"sawtooth",0.08);
+    }
+    else if(m.t==="final"){
+      stopHold();
+      $("doneMedal").textContent = m.champ ? "🏆" : "🎖️";
+      $("doneTitle").textContent = m.champ ? "CHAMPION!" : `Final place: #${m.place}`;
+      $("doneSub").textContent = `Total ⭐ ${m.total} pts`;
+      show("pDone"); if(m.champ){ fanfare(); if(navigator.vibrate) navigator.vibrate([100,50,100,50,300]); }
     }
     else if(m.t==="lobby"){ show("pWait"); }
   }
