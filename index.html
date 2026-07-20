@@ -111,13 +111,7 @@
     </div>
   </div>
   <div id="hostControls">
-    <label class="sub">Maze size:
-      <select id="sizeSel">
-        <option value="13">Easy (13×13)</option>
-        <option value="17" selected>Medium (17×17)</option>
-        <option value="23">Hard (23×23)</option>
-      </select>
-    </label>
+    <div class="sub">🏁 5 stages · the maze grows every stage · most ⭐ points wins</div>
     <button class="primary" id="startBtn" disabled>▶ Start Game</button>
   </div>
 </div>
@@ -298,7 +292,8 @@ function initHost(){
   let phase = "lobby";          // lobby | countdown | play | results
   let maze = null, dist = null, startDist = {};
   let startTime = 0, finishOrder = 0, raf = 0;
-  let stage = 0, baseSize = 17; // stage number + maze size chosen in lobby
+  let stage = 0;
+  const STAGES = 5;             // stage 5 is the final
   const PTS = [3,2,1];          // points for 1st / 2nd / 3rd (last gets 0)
 
   const peerId = "mzr-" + Math.random().toString(36).slice(2,8);
@@ -377,7 +372,6 @@ function initHost(){
   /* ---- start / stages / countdown ---- */
   $("startBtn").onclick = ()=>{           // fresh game from lobby: reset scores
     stage = 0;
-    baseSize = parseInt($("sizeSel").value,10);
     Object.values(players).forEach(p=>{ p.score=0; p.pts=0; });
     nextStage();
   };
@@ -393,11 +387,12 @@ function initHost(){
   }
 
   function nextStage(){
+    if(stage >= STAGES) return;
     Object.keys(players).forEach(id=>{ if(!players[id].connected) delete players[id]; });
     const list = Object.values(players);
     if(!list.length){ backToLobby(); return; }
     stage++;
-    const n = Math.min(baseSize + (stage-1)*2, 27);   // maze grows a little each stage
+    const n = 11 + stage*2;   // 13×13 → 15 → 17 → 19 → 21×21 at the final
     maze = genMaze(n);
     dist = bfsDist(maze);
     // everyone starts at the SAME random corner
@@ -410,13 +405,13 @@ function initHost(){
     });
     finishOrder = 0;
     phase = "countdown";
-    $("stageChip").textContent = "Stage " + stage;
+    $("stageChip").textContent = (stage===STAGES ? "🏆 FINAL — Stage " : "Stage ") + stage + "/" + STAGES;
     show("hostGame"); sizeCanvas(); renderHud();
     let c = 3;
-    bcast({t:"count", n:c, stage}); showCount(c); beep(440);
+    bcast({t:"count", n:c, stage, total:STAGES}); showCount(c); beep(440);
     const iv = setInterval(()=>{
       c--;
-      if(c>0){ bcast({t:"count",n:c,stage}); showCount(c); beep(440); }
+      if(c>0){ bcast({t:"count",n:c,stage,total:STAGES}); showCount(c); beep(440); }
       else{
         clearInterval(iv);
         showCount("GO!"); beep(880,0.3); setTimeout(()=>$("bigCount").style.display="none", 700);
@@ -457,7 +452,7 @@ function initHost(){
     const done = all.filter(p=>p.finished).sort((a,b)=>a.rank-b.rank);
     const lost = all.filter(p=>!p.finished);
     const medals = ["🥇","🥈","🥉","🏅"];
-    $("resTitle").innerHTML = `🏁 STAGE ${stage} <span class="a">RESULTS</span>`;
+    $("resTitle").innerHTML = `🏁 STAGE ${stage}/${STAGES} <span class="a">RESULTS</span>`;
     $("resTable").innerHTML =
       `<tr style="color:var(--muted);font-size:13px"><td></td><td></td><td>Player</td><td style="text-align:right">Time</td><td style="text-align:right">Points</td><td style="text-align:right">⭐ Total</td></tr>` +
       done.map((p,i)=>`<tr class="${i===0?"first":""}">
@@ -468,7 +463,15 @@ function initHost(){
         <td class="medal">💀</td><td>${avatarSVG(p.color,30)}</td>
         <td>${esc(p.name)}</td><td style="text-align:right">${p.connected?"Lost in the maze":"Disconnected"}</td>
         <td style="text-align:right">+0</td><td style="text-align:right">${p.score}</td></tr>`).join("");
-    $("nextBtn").style.display = ""; $("endBtn").style.display = "";
+    if(stage >= STAGES){
+      $("nextBtn").style.display = "none";
+      $("endBtn").textContent = "🏆 Final Results";
+    }else{
+      $("nextBtn").style.display = "";
+      $("nextBtn").textContent = `▶ Next Stage (${stage+1}/${STAGES})`;
+      $("endBtn").textContent = "🏁 End Game";
+    }
+    $("endBtn").style.display = "";
     $("backLobbyBtn").style.display = "none";
     show("hostResults");
   }
@@ -631,7 +634,7 @@ function initPlayer(){
       try{ navigator.wakeLock && navigator.wakeLock.request("screen"); }catch(e){}
       show("pWait"); beep(880,0.15,"triangle");
     }
-    else if(m.t==="count"){ $("stageLbl").textContent = "STAGE " + (m.stage||1); $("playerCount").textContent = m.n; show("pCount"); beep(440); if(navigator.vibrate) navigator.vibrate(60); }
+    else if(m.t==="count"){ $("stageLbl").textContent = (m.stage===m.total?"🏆 FINAL — STAGE ":"STAGE ") + (m.stage||1) + "/" + (m.total||5); $("playerCount").textContent = m.n; show("pCount"); beep(440); if(navigator.vibrate) navigator.vibrate(60); }
     else if(m.t==="go"){ $("padStage").textContent = "Stage " + (m.stage||1); $("progFill").style.width="0%"; show("pPad"); beep(880,0.3); if(navigator.vibrate) navigator.vibrate([80,40,80]); }
     else if(m.t==="prog"){ $("progFill").style.width = Math.round(Math.max(0,Math.min(1,m.v))*100)+"%"; }
     else if(m.t==="finish"){
