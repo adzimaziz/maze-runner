@@ -296,7 +296,8 @@ function initHost(){
   let startTime = 0, finishOrder = 0, raf = 0;
   let stage = 0;
   const STAGES = 5;             // stage 5 is the final
-  const PTS = [3,2,1];          // points for 1st / 2nd / 3rd (last gets 0)
+  let stageN = 0;               // players in the current stage; points = stageN - rank
+                                // 5p→4/3/2/1, 4p→3/2/1, 3p→2/1, 2p→1 (last always 0)
 
   const peerId = "mzr-" + Math.random().toString(36).slice(2,8);
   const peer = new Peer(peerId, {debug:0});
@@ -394,6 +395,7 @@ function initHost(){
     const list = Object.values(players);
     if(!list.length){ backToLobby(); return; }
     stage++;
+    stageN = list.length;
     const n = 11 + stage*2;   // 13×13 → 15 → 17 → 19 → 21×21 at the final
     maze = genMaze(n);
     dist = bfsDist(maze);
@@ -431,7 +433,7 @@ function initHost(){
     p.finished = true;
     p.time = performance.now()-startTime;
     p.rank = ++finishOrder;
-    p.pts = PTS[p.rank-1] || 0;
+    p.pts = Math.max(0, stageN - p.rank);
     p.score += p.pts;
     p.totalTime += p.time;   // cumulative time = tie-breaker when points are equal
     send(p.conn, {t:"finish", rank:p.rank, time:p.time, pts:p.pts, total:p.score});
